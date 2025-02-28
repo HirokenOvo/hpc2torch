@@ -40,52 +40,49 @@ def test(inputShape, indexShape, axis, test_dtype, device):
                             ctypes.POINTER(ctypes.c_void_p))
     output_ptr = ctypes.cast(
         Q_output.data_ptr(), ctypes.POINTER(ctypes.c_void_p))
-    input_shape_ptr = ctypes.cast(
-        (ctypes.c_int * len(inputShape))(*inputShape), ctypes.POINTER(ctypes.c_int))
-    index_shape_ptr = ctypes.cast(
-        (ctypes.c_int * len(inputShape))(*indexShape), ctypes.POINTER(ctypes.c_int))
-    index_shape_rank = len(indexShape)
+
+    axis_size = inputShape[axis]
+    indices_size = np.prod(indexShape)
+    inputR_stride = inputTensor.stride(axis)
+    output_size = np.prod(outTensor.shape)
 
     if test_dtype == torch.float32:
         if device == "cuda":
             torch_gather_time = performance.CudaProfile(
                 (gather, (rank, axis, inputTensor, indexTensor)))
+
             lib.gather_nv_f32.argtypes = [
                 ctypes.POINTER(ctypes.c_void_p),
                 ctypes.POINTER(ctypes.c_void_p),
                 ctypes.POINTER(ctypes.c_void_p),
                 ctypes.c_int,
-                ctypes.POINTER(ctypes.c_int),
                 ctypes.c_int,
-                ctypes.POINTER(ctypes.c_int),
+                ctypes.c_int,
+                ctypes.c_int,
                 ctypes.c_int
             ]
             custom_gather_time = performance.CudaProfile(
-                (lib.gather_nv_f32, (input_ptr, index_ptr, output_ptr, axis, input_shape_ptr, rank, index_shape_ptr, index_shape_rank)))
+                (lib.gather_nv_f32, (input_ptr, index_ptr, output_ptr, axis, indices_size, inputR_stride, axis_size, output_size)))
     if test_dtype == torch.float16:
         if device == "cuda":
             torch_gather_time = performance.CudaProfile(
                 (gather, (rank, axis, inputTensor, indexTensor)))
+
             lib.gather_nv_f16.argtypes = [
                 ctypes.POINTER(ctypes.c_void_p),
                 ctypes.POINTER(ctypes.c_void_p),
                 ctypes.POINTER(ctypes.c_void_p),
                 ctypes.c_int,
-                ctypes.POINTER(ctypes.c_int),
                 ctypes.c_int,
-                ctypes.POINTER(ctypes.c_int),
+                ctypes.c_int,
+                ctypes.c_int,
                 ctypes.c_int
             ]
             custom_gather_time = performance.CudaProfile(
-                (lib.gather_nv_f16, (input_ptr, index_ptr, output_ptr, axis, input_shape_ptr, rank, index_shape_ptr, index_shape_rank)))
+                (lib.gather_nv_f16, (input_ptr, index_ptr, output_ptr, axis, indices_size, inputR_stride, axis_size, output_size)))
+
     performance.logBenchmark(torch_gather_time, custom_gather_time)
-    # print(inputTensor)
-    # print("===========")
-    # print(indexTensor)
-    # print("===========")
-    # print(outTensor)
-    # print("===========")
-    # print(Q_output)
+
     tmpa = outTensor.to('cpu').numpy().flatten()
     tmpb = Q_output.to('cpu').numpy().flatten()
 
@@ -107,12 +104,12 @@ test_cases = [
     ((3, 2), (2, 2), 0, torch.float32, "cuda"),
     ((3, 2), (1, 2), 1, torch.float32, "cuda"),
     ((3, 2, 3), (1, 2, 1), 1, torch.float32, "cuda"),
-    ((3, 2, 3), (1, 2, 1), 1, torch.float32, "cuda"),
     ((50257, 768), (16, 1024), 0, torch.float32, "cuda"),
 
     ((3, 2), (2, 2), 0, torch.float16, "cuda"),
     ((3, 2), (1, 2), 1, torch.float16, "cuda"),
     ((50257, 768), (16, 1024), 0, torch.float16, "cuda"),
+    ((1024, 32, 512, 4), (1, 2, 1), 1, torch.float16, "cuda"),
 
 ]
 filtered_test_cases = [
