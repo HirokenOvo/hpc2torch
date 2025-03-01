@@ -109,7 +109,7 @@ test_cases = [
     ((3, 2), (2, 2), 0, torch.float16, "cuda"),
     ((3, 2), (1, 2), 1, torch.float16, "cuda"),
     ((50257, 768), (16, 1024), 0, torch.float16, "cuda"),
-    # ((512, 128, 4, 4), (1, 1, 1), 2, torch.float16, "cuda"),
+    ((512, 128, 4, 128), (4, 1, 1), 2, torch.float16, "cuda"),
 
 ]
 filtered_test_cases = [

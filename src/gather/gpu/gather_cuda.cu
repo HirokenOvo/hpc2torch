@@ -1,38 +1,44 @@
 #include <cuda_fp16.h>
-#include <cstdio>
-using ull = unsigned long long;
 
-static int indices_size, inputR_stride, axis_size, output_size;
-constexpr int block_size = 128;
+using ull = unsigned long long;
+using uint = unsigned int;
+
+static uint indices_size, inputR_stride, axis_size, output_size, grid_max_size;
+constexpr uint block_max_size = 128;
 
 template<typename T>
-__global__ void gather(const T *input, const ull*indices, T *output, int N, int axis_size, int inputR_stride)
+__global__ void gather(const T *input, const ull*indices, T *output, 
+                       const uint grid_max_size, 
+                       const uint N, const uint axis_size, const uint inputR_stride, const uint indices_size)
 {
     /* 
-        gridDim.x : indices_size
-        gridDim.y : inputL
-        blockIdx.x : indices
-        blockIdx.y : inputL
+        blockIdx.x : inputL | index
         threadIdx.x : inputR
     */
-    int output_offset = blockIdx.x * inputR_stride + blockIdx.y * gridDim.x * inputR_stride;
-    int input_offset = blockIdx.y * axis_size * inputR_stride + indices[blockIdx.x] * inputR_stride;
-    for(int tid = threadIdx.x; tid < inputR_stride; tid += block_size)
-        if(output_offset + tid < N)
-            output[output_offset + tid] = input[input_offset + tid];
+    for(uint bid = blockIdx.x; bid < grid_max_size; bid += gridDim.x)
+    {
+        const uint inputL = bid / indices_size;
+        const uint index = bid % indices_size;
+        const uint output_offset = inputL * indices_size * inputR_stride + index * inputR_stride;
+        const uint input_offset = inputL * axis_size * inputR_stride + indices[index] * inputR_stride;
+
+        for(uint tid = threadIdx.x; tid < inputR_stride; tid += blockDim.x)
+            if(output_offset + tid < N)
+                output[output_offset + tid] = input[input_offset + tid];
+    }
 }
 
 template<typename T>
 void gatherLaunch(const void *input, const void *indices, void *output)
 {
-    int base = indices_size * inputR_stride;
-    int inputL = (output_size + base - 1) / base;
-    dim3 grid_size(indices_size, inputL);
-
+    grid_max_size = (output_size + inputR_stride - 1) / inputR_stride;
+    const uint grid_size = std::min(grid_max_size, static_cast<uint>(INT_MAX));
+    const uint block_size = std::max(static_cast<uint>(32), std::min(inputR_stride, block_max_size));
     gather<T><<<grid_size, block_size>>>(static_cast<const T*>(input), 
                                          static_cast<const ull*>(indices), 
                                          static_cast<T*>(output), 
-                                         output_size, axis_size, inputR_stride);
+                                         grid_max_size,
+                                         output_size, axis_size, inputR_stride, indices_size);
 }
 
 static void dataPreprocess(const int *input_shape, const int input_shape_len, 
